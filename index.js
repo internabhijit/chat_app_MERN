@@ -11,8 +11,14 @@ const config =
   mode == "prod" ? require("./env/production") : require("./env/development");
 const PORT = config.port;
 
+// Models
+const Messages = require("./model/messages");
+
+// Routes
 const { addUser, removeUser, getUsers, getUsersInRoom } = require("./users");
 const userAuth = require("./routes/userAuth");
+const users = require("./routes/users");
+const messages = require("./routes/messages");
 const router = require("./router");
 
 const app = express();
@@ -20,19 +26,34 @@ const server = http.createServer(app);
 const io = socketio(server);
 
 io.on("connection", (socket) => {
-  socket.on("join", ({ name, room }, callback) => {
-    const { error, user } = addUser({ id: socket.id, name, room });
+  console.log("New User Connected", socket.id);
+
+  socket.on("join", async ({ senderId, name, room }, callback) => {
+    console.log("User Join The Room", room, "With SocketId :", socket.id);
+
+    let secondUser = room.split("_").map((n) => Number(n));
+    senderId = Number(senderId);
+
+    secondUser = secondUser[0] === senderId ? secondUser[1] : secondUser[0];
+
+    const { error, user } = addUser({ id: socket.id, name, room, senderId });
 
     if (error) return callback(error);
 
-    socket.emit("message", {
-      user: "admin",
-      text: `${user.name}, welcome to the room ${user.room}`,
-    });
-
-    socket.broadcast
-      .to(user.room)
-      .emit("message", { user: "admin", text: `${user.name}, has joined!` });
+    try {
+      await Messages.updateMany(
+        {
+          conversationId: room,
+          sentBy: secondUser,
+          messageStatus: { $ne: "DELIVERED" },
+        },
+        {
+          $set: { messageStatus: "DELIVERED" },
+        }
+      );
+    } catch (error) {
+      return callback("Something went wrong");
+    }
 
     socket.join(user.room);
 
@@ -44,10 +65,34 @@ io.on("connection", (socket) => {
     callback();
   });
 
-  socket.on("sendMessage", (message, callback) => {
-    const user = getUsers(socket.id);
+  socket.on("sendMessage", async (message, callback) => {
+    const { error, user } = await getUsers(socket.id);
 
-    io.to(user.room).emit("message", { user: user.name, text: message });
+    if (error) return callback("User Not Found");
+    const activeUsers = getUsersInRoom(user.room);
+
+    let messageStatus = "SENT";
+
+    if (activeUsers.length === 2) messageStatus = "DELIVERED";
+
+    let addMessage = {
+      conversationId: user.room,
+      messageType: "TEXT",
+      message: message,
+      messageStatus,
+      sentBy: user.senderId,
+      sentByName: user.name,
+    };
+
+    try {
+      addMessage = new Messages(addMessage);
+      await addMessage.save();
+    } catch (error) {
+      return callback("Message Not Send");
+    }
+
+    io.to(user.room).emit("message", addMessage);
+
     io.to(user.room).emit("roomData", {
       room: user.name,
       users: getUsersInRoom(user.room),
@@ -58,13 +103,19 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const user = removeUser(socket.id);
+    console.log("********** BYE BYE ***************");
 
-    if (user) {
-      io.to(user.room).emit("message", {
-        user: "admin",
-        text: `${user.name} has left.`,
-      });
-    }
+    console.log(
+      "User Left The Room : ",
+      user.room,
+      "User Name",
+      user.name,
+      "User Id",
+      user.senderId,
+      "Socket Id",
+      user.id
+    );
+    console.log("********** BYE BYE ***************");
   });
 });
 
@@ -73,6 +124,8 @@ app.use(bodyParser.json());
 app.use(cors());
 
 app.use("/", userAuth);
+app.use("/users", users);
+app.use("/messages", messages);
 app.use(router);
 
 server.listen(PORT, () =>

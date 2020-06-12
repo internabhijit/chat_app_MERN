@@ -13,7 +13,7 @@ let validate = (req, res, next) => {
         });
       }
 
-      req["body"]["userObjId"] = decoded._id;
+      req["body"]["_id"] = decoded._id;
       req["body"]["name"] = decoded.name;
       req["body"]["userId"] = decoded.userId;
 

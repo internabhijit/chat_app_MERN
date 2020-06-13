@@ -1,13 +1,11 @@
 let express = require("express");
 let router = express.Router();
 
-let authController = require("../controllers/userAuth");
+let { login, registration, logout } = require("../controllers/userAuth");
+let { validate } = require("../middleware/validation");
 
-router.post("/login", authController.login);
-router.post("/registration", authController.registration);
-router.get("/logout", (req, res) => {
-  res.clearCookie("token");
-  // res.render('login');
-});
+router.post("/login", login);
+router.post("/registration", registration);
+router.get("/logout", validate, logout);
 
 module.exports = router;

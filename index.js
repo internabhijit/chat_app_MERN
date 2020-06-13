@@ -6,6 +6,7 @@ const bodyParser = require("body-parser");
 
 require("./config/mongoConn");
 
+// Config Based On Env
 const mode = process.env.NODE_ENV;
 const config =
   mode == "prod" ? require("./env/production") : require("./env/development");
@@ -14,29 +15,39 @@ const PORT = config.port;
 // Models
 const Messages = require("./model/messages");
 
-// Routes
-const { addUser, removeUser, getUsers, getUsersInRoom } = require("./users");
+// Internal Routes
+const {
+  addUser,
+  removeUser,
+  getUsers,
+  getUsersInRoom,
+  isUserOnline,
+} = require("./controllers/userAuth");
+
+// External Routes
 const userAuth = require("./routes/userAuth");
 const users = require("./routes/users");
 const messages = require("./routes/messages");
-const router = require("./router");
 
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server);
 
 io.on("connection", (socket) => {
-  console.log("New User Connected", socket.id);
-
+  // BlueTick Logic
+  // Whenever User Open His/Her Chat Window Mark All Messages As READ In DB Which Are Sent To Him In That Specifice Room
   socket.on("join", async ({ senderId, name, room }, callback) => {
-    console.log("User Join The Room", room, "With SocketId :", socket.id);
-
     let secondUser = room.split("_").map((n) => Number(n));
     senderId = Number(senderId);
 
     secondUser = secondUser[0] === senderId ? secondUser[1] : secondUser[0];
 
-    const { error, user } = addUser({ id: socket.id, name, room, senderId });
+    const { error, user } = await addUser({
+      id: socket.id,
+      name,
+      room,
+      senderId,
+    });
 
     if (error) return callback(error);
 
@@ -45,10 +56,10 @@ io.on("connection", (socket) => {
         {
           conversationId: room,
           sentBy: secondUser,
-          messageStatus: { $ne: "DELIVERED" },
+          messageStatus: "DELIVERED",
         },
         {
-          $set: { messageStatus: "DELIVERED" },
+          $set: { messageStatus: "READ" },
         }
       );
     } catch (error) {
@@ -65,15 +76,27 @@ io.on("connection", (socket) => {
     callback();
   });
 
+  // Send Message Logic
+  // If The User To Which We Are Sending Message Is Not Online Mark That Msg As SENT
+  // If The User To Which We Are Sending Message Is Online Mark That Msg As DELIVERED
+  // If The User To Which We Are Sending Message Is Online In Same Room Mark That Msg As READ
   socket.on("sendMessage", async (message, callback) => {
-    const { error, user } = await getUsers(socket.id);
+    const { error, user } = getUsers(socket.id);
 
     if (error) return callback("User Not Found");
+
+    let secondUser = user.room.split("_").map((n) => Number(n));
+    let senderId = Number(user.senderId);
+
+    secondUser = secondUser[0] === senderId ? secondUser[1] : secondUser[0];
     const activeUsers = getUsersInRoom(user.room);
+    const userStatus = isUserOnline(secondUser);
 
     let messageStatus = "SENT";
 
-    if (activeUsers.length === 2) messageStatus = "DELIVERED";
+    if (userStatus !== -1) messageStatus = "DELIVERED";
+
+    if (activeUsers.length === 2) messageStatus = "READ";
 
     let addMessage = {
       conversationId: user.room,
@@ -103,19 +126,6 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const user = removeUser(socket.id);
-    console.log("********** BYE BYE ***************");
-
-    console.log(
-      "User Left The Room : ",
-      user.room,
-      "User Name",
-      user.name,
-      "User Id",
-      user.senderId,
-      "Socket Id",
-      user.id
-    );
-    console.log("********** BYE BYE ***************");
   });
 });
 
@@ -126,7 +136,6 @@ app.use(cors());
 app.use("/", userAuth);
 app.use("/users", users);
 app.use("/messages", messages);
-app.use(router);
 
 server.listen(PORT, () =>
   console.log(

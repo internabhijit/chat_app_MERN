@@ -6,7 +6,6 @@ let {
   addNewMsg,
   updateMsgStatus,
 } = require("../controllers/messages");
-// let { validate } = require("../middleware/validation");
 
 router.get("/", getMsgsById);
 router.post("/addNewMsg", addNewMsg);

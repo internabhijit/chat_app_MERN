@@ -48,6 +48,14 @@ var corsOptionsDelegate = function (req, callback) {
   callback(null, corsOptions); // callback expects two parameters: error and options
 };
 
+app.use(function (req, res, next) {
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "https://react-chat-application10.herokuapp.com"
+  );
+  next();
+});
+
 app.use("/", cors(corsOptionsDelegate), userAuth);
 app.use("/users", cors(corsOptionsDelegate), users);
 app.use("/messages", cors(corsOptionsDelegate), messages);

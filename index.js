@@ -30,6 +30,28 @@ const users = require("./routes/users");
 const messages = require("./routes/messages");
 
 const app = express();
+
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
+app.use(bodyParser.json());
+
+var whitelist = [
+  "http://localhost:3000",
+  "https://react-chat-application10.herokuapp.com",
+];
+var corsOptionsDelegate = function (req, callback) {
+  var corsOptions;
+  if (whitelist.indexOf(req.header("Origin")) !== -1) {
+    corsOptions = { origin: true }; // reflect (enable) the requested origin in the CORS response
+  } else {
+    corsOptions = { origin: false }; // disable CORS for this request
+  }
+  callback(null, corsOptions); // callback expects two parameters: error and options
+};
+
+app.use("/", cors(corsOptionsDelegate), userAuth);
+app.use("/users", cors(corsOptionsDelegate), users);
+app.use("/messages", cors(corsOptionsDelegate), messages);
+
 const server = http.createServer(app);
 const io = socketio(server);
 
@@ -128,14 +150,6 @@ io.on("connection", (socket) => {
     const user = removeUser(socket.id);
   });
 });
-
-app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
-app.use(bodyParser.json());
-app.use(cors());
-
-app.use("/", userAuth);
-app.use("/users", users);
-app.use("/messages", messages);
 
 server.listen(PORT, () =>
   console.log(

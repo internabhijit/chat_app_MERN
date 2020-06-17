@@ -10,7 +10,7 @@ require("./config/mongoConn");
 const mode = process.env.NODE_ENV;
 const config =
   mode == "prod" ? require("./env/production") : require("./env/development");
-const PORT = config.port;
+const PORT = process.env.PORT || config.port;
 
 // Models
 const Messages = require("./model/messages");
